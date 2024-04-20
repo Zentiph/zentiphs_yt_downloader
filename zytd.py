@@ -18,10 +18,9 @@ import sys
 import threading
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, PhotoImage, scrolledtext, simpledialog
+from tkinter import filedialog, messagebox, PhotoImage, scrolledtext
 
 from re import sub
-from typing import Union
 
 
 def resource_path(rel_path):
@@ -155,6 +154,34 @@ class YouTubeDownloader(tk.Tk):
 
         return sub(r'[\\/*?:"<>|]', '', filename)
 
+    def set_audio_dir(self) -> None:
+        """Sets the audio download directory to the user's choice.
+        """
+
+        audio_dir = filedialog.askdirectory(
+            title="Select the location to download audio files.")
+
+        if not audio_dir:
+            self.update_status("Status: Canceled", "orange")
+            return
+
+        self.download_dirs['audio'] = audio_dir
+        self._update_dirs(self.download_dirs)
+
+    def set_video_dir(self) -> None:
+        """Sets the video download directory to the user's choice.
+        """
+
+        video_dir = filedialog.askdirectory(
+            title="Select the location to download video files.")
+
+        if not video_dir:
+            self.update_status("Status: Canceled", "orange")
+            return
+
+        self.download_dirs['video'] = video_dir
+        self._update_dirs(self.download_dirs)
+
     # downloading funcs
 
     def _download_audio(self) -> None:
@@ -164,13 +191,22 @@ class YouTubeDownloader(tk.Tk):
         if self.download_dirs['audio'] is None:
             self.set_audio_dir()
 
+        # if user canceled setting the directory
+        if self.download_dirs['audio'] is None:
+            return
+
         url = self.url_entry.get()
         filename = self.filename_entry.get()
 
         self.after(0, self.update_status,
                    "Status: Downloading (may take a minute)", "blue")
 
+        self.after(0, self.append_log, "Getting video...")
+
         video = pytube.YouTube(url)
+
+        self.after(0, self.append_log, "Fetching audio stream...")
+
         stream = video.streams.get_audio_only()
 
         if filename is None or filename.strip() == '':
@@ -182,15 +218,24 @@ class YouTubeDownloader(tk.Tk):
 
         download_dir = self.download_dirs['audio']
         if not os.path.exists(download_dir):
+            self.after(0, self.update_status, "Status: Failure", "red")
+            self.after(0, self.append_log,
+                       f"FileNotFoundError: {download_dir} does not exist. Make sure to set your download directories.")
+
             raise FileNotFoundError(f"{download_dir} does not exist.")
 
         webm_file_path = os.path.join(download_dir, filename + ".webm")
+
+        self.after(0, self.append_log, "Downloading audio...")
+
         stream.download(output_path=download_dir, filename=filename + ".webm")
 
         self.after(0, self.update_status, "Status: Converting", "purple")
         self.after(0, self.append_log, "Attempting to convert to MP3...")
 
         mp3_file_path = os.path.join(download_dir, filename + ".mp3")
+
+        self.after(0, self.append_log, "Trying ffmpeg...")
 
         try:
             cmd = [
@@ -209,11 +254,14 @@ class YouTubeDownloader(tk.Tk):
         except FileNotFoundError:
             self.after(0, self.update_status, "Status: Failure", "red")
             self.after(0, self.append_log,
-                       "MP3 conversion unsuccessful; ffmpeg was not found. Please install ffmpeg for best results at https://ffmpeg.org/download.html")
+                       "MP3 conversion unsuccessful; ffmpeg was not found. Please install ffmpeg at https://ffmpeg.org/download.html")
 
         if os.path.exists(mp3_file_path):
             self.after(0, self.update_status, "Status: Cleaning up", "gray")
+            self.after(0, self.append_log, "Deleting .webm...")
+
             os.remove(webm_file_path)
+
             self.after(0, self.update_status, "Status: Success", "green")
             self.after(0, self.append_log,
                        f"Conversion successful. Check your audio downloads folder: {self.download_dirs['audio']}")
@@ -228,12 +276,21 @@ class YouTubeDownloader(tk.Tk):
         if self.download_dirs['video'] is None:
             self.set_video_dir()
 
+        # if user canceled setting the directory
+        if self.download_dirs['video'] is None:
+            return
+
         url = self.url_entry.get()
         filename = self.filename_entry.get()
 
         self.after(0, self.update_status, "Status: Fetching streams", "blue")
 
+        self.after(0, self.append_log, "Getting video...")
+
         video = pytube.YouTube(url)
+
+        self.after(0, self.append_log, "Fetching video streams...")
+
         streams = video.streams.filter(
             progressive=True).order_by("resolution").desc()
 
@@ -253,6 +310,8 @@ class YouTubeDownloader(tk.Tk):
 
         download_dir = self.download_dirs['video']
         if not os.path.exists(download_dir):
+            self.after(
+                0, self.append_log, f"FileNotFoundError: {download_dir} does not exist. Make sure to set your download directories.")
             raise FileNotFoundError(f"{download_dir} does not exist.")
 
         self.after(0, self.update_status,
@@ -267,24 +326,6 @@ class YouTubeDownloader(tk.Tk):
         self.after(0, self.append_log,
                    f"Download successful. Check your video downloads folder: {self.download_dirs['video']}")
 
-    def set_audio_dir(self) -> None:
-        """Sets the audio download directory to the user's choice.
-        """
-
-        audio_dir = filedialog.askdirectory(
-            title="Select the location to download audio files.")
-        self.download_dirs['audio'] = audio_dir
-        self._update_dirs(self.download_dirs)
-
-    def set_video_dir(self) -> None:
-        """Sets the video download directory to the user's choice.
-        """
-
-        video_dir = filedialog.askdirectory(
-            title="Select the location to download video files.")
-        self.download_dirs['video'] = video_dir
-        self._update_dirs(self.download_dirs)
-
     def update_status(self, msg: str, color: str) -> None:
         self.status.config(text=msg, fg=color)
 
@@ -293,7 +334,9 @@ class YouTubeDownloader(tk.Tk):
         self.logs.see(tk.END)
 
     def start_download(self) -> None:
-        threading.Thread(target=self.download, daemon=True).start()
+        thread = threading.Thread(target=self.download, daemon=True)
+
+        thread.start()
 
     def download(self) -> None:
         url = self.url_entry.get().strip()
