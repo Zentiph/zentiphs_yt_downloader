@@ -1,0 +1,5 @@
+.vscode/
+build/
+dist/zytd/_internal
+zytd.spec
+vd_data/
