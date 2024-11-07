@@ -1,6 +1,8 @@
 Welcome to Zentiph's YT Downloader!
 -----------------------------------
 
+# this doesn't work anymore lol!
+
 !! This project is only Windows compatible !!
 
 ** Compiled with pyinstaller **
